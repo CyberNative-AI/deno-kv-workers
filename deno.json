@@ -1,0 +1,28 @@
+{
+  "nodeModulesDir": "auto",
+  "unstable": [
+    "kv"
+  ],
+  "tasks": {
+    "test": "sh test/run.sh",
+    "scan": "deno run --allow-read --allow-write tools/scan.ts",
+    "export": "deno run -A tools/export.ts",
+    "import": "deno run -A tools/import.ts",
+    "verify": "deno run -A tools/verify.ts"
+  },
+  "fmt": {
+    "lineWidth": 140,
+    "exclude": [
+      "src/vendor/kv_json.ts"
+    ]
+  },
+  "exclude": [
+    "node_modules",
+    ".wrangler"
+  ],
+  "lint": {
+    "exclude": [
+      "src/vendor/kv_json.ts"
+    ]
+  }
+}

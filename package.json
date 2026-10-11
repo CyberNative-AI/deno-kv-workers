@@ -1,0 +1,25 @@
+{
+  "name": "deno-kv-workers",
+  "version": "0.1.0",
+  "description": "Move a Deno KV app to Cloudflare Workers with its data and KV semantics intact: Deno.Kv-compatible client on a SQLite Durable Object, TTL-preserving import, and a before/after verify harness.",
+  "license": "MIT",
+  "author": "CyberNative AI LLC",
+  "type": "module",
+  "exports": {
+    ".": "./src/mod.ts",
+    "./shim": "./src/shim.ts"
+  },
+  "files": [
+    "src",
+    "tools",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "wrangler": "4.149.0"
+  },
+  "allowScripts": {
+    "workerd@1.20261006.1": true,
+    "esbuild@0.28.2": true
+  }
+}

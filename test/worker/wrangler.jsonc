@@ -1,0 +1,8 @@
+{
+  "name": "deno-kv-workers-test",
+  "main": "index.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": { "bindings": [{ "name": "DENO_KV", "class_name": "DenoKvObject" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DenoKvObject"] }],
+  "vars": { "KV_MIGRATION_TOKEN": "local-test-token" }
+}

@@ -1,0 +1,36 @@
+{
+  "normalize": [
+    { "pattern": "[0-9a-f]{10}", "replace": "<id>" },
+    { "pattern": "\\d{4}-\\d\\d-\\d\\dT[\\d:.]+Z", "replace": "<time>" },
+    { "pattern": "\"cursor\":\"[^\"]+\"", "replace": "\"cursor\":\"<cursor>\"" }
+  ],
+  "steps": [
+    {
+      "name": "create link 1",
+      "method": "POST",
+      "path": "/links",
+      "json": { "target": "https://example.com/one" },
+      "save": { "one": "id" }
+    },
+    {
+      "name": "create link 2",
+      "method": "POST",
+      "path": "/links",
+      "json": { "target": "https://example.com/two" },
+      "save": { "two": "id" }
+    },
+    {
+      "name": "create link 3",
+      "method": "POST",
+      "path": "/links",
+      "json": { "target": "https://example.com/three" },
+      "save": { "three": "id" }
+    },
+    { "name": "20 concurrent redeems of link 1", "method": "GET", "path": "/r/{{one}}", "concurrent": 20 },
+    { "name": "redeem link 1 again", "method": "GET", "path": "/r/{{one}}" },
+    { "name": "delete link 2", "method": "DELETE", "path": "/links/{{two}}" },
+    { "name": "redeem deleted link 2", "method": "GET", "path": "/r/{{two}}" },
+    { "name": "list first page", "method": "GET", "path": "/links?limit=1" },
+    { "name": "stats", "method": "GET", "path": "/stats" }
+  ]
+}

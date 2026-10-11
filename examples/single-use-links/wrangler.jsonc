@@ -1,0 +1,8 @@
+{
+  "name": "single-use-links",
+  "main": "worker.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": { "bindings": [{ "name": "DENO_KV", "class_name": "DenoKvObject" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DenoKvObject"] }]
+  // For the migration window only: `wrangler secret put KV_MIGRATION_TOKEN`; delete it afterwards.
+}
