@@ -107,6 +107,12 @@ deno run --unstable-kv -A tools/export.ts path/to/kv.sqlite --out export.ndjson
 The output is `@deno/kv-utils` NDJSON. If the source is a SQLite file (local Deno or self-hosted `denokv`), each expiring entry also gets
 its exact `expireAt`, read from the file. An existing kv-utils export also works as input.
 
+Stop writes to the source first. Deno KV has no snapshot read, so a list is read page by page, and an export taken while the app
+still writes can hold a state that never existed: in our test, an export taken during atomic transfers lost one or two units from a
+balance total that every commit kept constant. The export therefore lists the store a second time and compares every key and
+versionstamp. If anything changed, it exits with code 3 and deletes the output file. Put the app in maintenance mode (or make it
+read-only) and run it again. Keys that expire during the export also count as changes. `--no-recheck` skips the second pass.
+
 **5. Import** it into the Worker, through the migration route `handleMigration` exposes:
 
 ```sh
@@ -158,7 +164,8 @@ The exit code is 1 when anything differs, so the check also works in CI. Run it 
 - **Not supported:** `kv.watch()`, queues (`enqueue`, `listenQueue`), and `Deno.openKv(path)`. Each throws an error that names the
   Cloudflare alternative. Consistency options are accepted and ignored: every read is strongly consistent.
 - **Expiry is stricter than Deno's.** Deno can serve an expired key until its background sweep. This port hides it at once.
-- **Hosted Deno Deploy export is untested.** `tools/export.ts` should accept a KV Connect URL with `DENO_KV_ACCESS_TOKEN`, but we have not
+- **Hosted Deno Deploy export is untested.** `tools/export.ts` accepts a KV Connect URL with `DENO_KV_ACCESS_TOKEN`. Against a
+  self-hosted `denokv` 0.14.0 server it exported the same entries, in the same order, as a direct read of the store's file. We have not
   run it against a hosted database. Exact expiry is never readable over KV Connect. Use the scanner's TTL policy instead.
 - **One Durable Object holds one KV database.** All commits are serialized, which is what makes `check()` exact. Throughput is that of one
   Durable Object, and storage is capped by the Durable Object SQLite limit. An app that needs more must shard by key prefix itself. This kit
