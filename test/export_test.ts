@@ -26,9 +26,13 @@ function transfers(path: string) {
     while (!stop) {
       const a = ACCOUNTS - 1 - (commits % 20), b = commits % 20;
       const [ea, eb] = await kv.getMany<number[]>([["acct", a], ["acct", b]]);
-      if ((await kv.atomic().check(ea, eb).set(["acct", a], ea.value! - 1).set(["acct", b], eb.value! + 1).commit()).ok) {
-        commits++;
-      }
+      // The export's own reader can briefly lock the file under load; a failed commit changes nothing.
+      const r = await kv.atomic().check(ea, eb).set(["acct", a], ea.value! - 1).set(["acct", b], eb.value! + 1).commit()
+        .catch((e) => {
+          if (!/database is locked/.test(String(e))) throw e;
+          return { ok: false };
+        });
+      if (r.ok) commits++;
     }
     kv.close();
   })();
@@ -84,4 +88,59 @@ Deno.test("--no-recheck skips the second pass", async () => {
   assertEquals(r.code, 0, r.log);
   assert(/recheck skipped/.test(r.log), r.log);
   await Deno.remove(dir, { recursive: true });
+});
+
+// Expiry is read from the SQLite file, not from kv.list. A key written with a TTL after the expiry map was
+// read but before pass 1 lists it has the same versionstamp in both passes, so only the expiry tells.
+const SESSIONS: Deno.KvKey[] = [0, 1.5, -2, 3n, "s", true, false, new Uint8Array([4, 0, 5])].map((p) => ["session", p]);
+
+async function exportDuringTtlWrite(rewrite: boolean) {
+  const dir = await Deno.makeTempDir();
+  const path = `${dir}/kv.sqlite`, out = `${dir}/out.ndjson`;
+  const kv = await Deno.openKv(path);
+  for (let b = 0; b < 20000; b += 500) {
+    const op = kv.atomic();
+    for (let i = b; i < b + 500; i++) op.set(["filler", i], "f" + i);
+    await op.commit();
+  }
+  if (rewrite) {
+    const op = kv.atomic();
+    for (const k of SESSIONS) op.set(k, "old", { expireIn: 600_000 });
+    await op.commit();
+  }
+  const child = new Deno.Command(Deno.execPath(), {
+    args: ["run", "--unstable-kv", "-A", "tools/export.ts", path, "--out", out],
+    stderr: "piped",
+  }).spawn();
+  // Pass 1 has begun writing lines, so the expiry map is read; the session keys sort after all filler keys.
+  while (!((await Deno.stat(out).catch(() => null))?.size)) await new Promise((r) => setTimeout(r, 2));
+  const op = kv.atomic();
+  for (const k of SESSIONS) op.set(k, "new", { expireIn: 3_600_000 });
+  await op.commit();
+  const written = Date.now();
+  const o = await child.output();
+  const r = { code: o.code, log: new TextDecoder().decode(o.stderr) };
+  assertEquals(r.code, 3, r.log);
+  assert(/export NOT consistent/.test(r.log), r.log);
+  assertEquals(await exists(out), false, "an export with a stale or missing expiry is not left behind");
+
+  // Writes stopped: the rerun passes and every session key carries its new expiry.
+  const again = await exportTo(path, out);
+  assertEquals(again.code, 0, again.log);
+  const sess = (await Deno.readTextFile(out)).split("\n").filter(Boolean).map((l) => JSON.parse(l))
+    .filter((e) => e.key[0].value === "session");
+  assertEquals(sess.length, SESSIONS.length);
+  for (const e of sess) {
+    assert(e.expireAt > written + 3_000_000 && e.expireAt <= written + 3_600_000, JSON.stringify(e));
+  }
+  kv.close();
+  await Deno.remove(dir, { recursive: true });
+}
+
+Deno.test("TTL keys written during the export are refused (exit 3), not exported without expiry", async () => {
+  await exportDuringTtlWrite(false);
+});
+
+Deno.test("TTL keys re-written during the export are refused (exit 3), not exported with the old expiry", async () => {
+  await exportDuringTtlWrite(true);
 });

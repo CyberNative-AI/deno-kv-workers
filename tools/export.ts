@@ -4,7 +4,7 @@
 //
 // Deno KV has no snapshot read: a list is fetched page by page, so an export taken while the app
 // still writes can hold a state that never existed (half of an atomic commit). After the export the
-// tool lists the store a second time and compares every key and versionstamp. If anything changed,
+// tool lists the store a second time and compares every key, versionstamp and expiry. If anything changed,
 // the export is not a consistent copy: it exits 3 and deletes the --out file. Stop writes to the
 // source (or put the app in maintenance mode) and run it again. --no-recheck skips the second pass.
 //
@@ -16,7 +16,7 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { encodeKey, type KeyPart, toHex } from "../src/keys.ts";
-import { entryToJSON, toKey } from "../src/vendor/kv_json.ts";
+import { entryToJSON } from "../src/vendor/kv_json.ts";
 
 function arg(name: string): string | undefined {
   const i = Deno.args.indexOf(name);
@@ -34,30 +34,42 @@ const out = outPath ? await Deno.open(outPath, { write: true, create: true, trun
 const recheck = !Deno.args.includes("--no-recheck");
 
 const isUrl = /^https?:\/\//.test(source);
-const expiry = new Map<string, number>();
-if (!isUrl) {
-  const db = new DatabaseSync(source, { readOnly: true });
+// Expiry by key (hex of the encoded key), read from the store's SQLite file. Empty for a hosted store.
+function readExpiry(): Map<string, number> {
+  const expiry = new Map<string, number>();
+  if (isUrl) return expiry;
+  const db = new DatabaseSync(source!, { readOnly: true });
   for (
     const r of db.prepare("SELECT hex(k) AS h, expiration_ms AS e FROM kv WHERE expiration_ms >= 0").all() as { h: string; e: number }[]
   ) {
     expiry.set(r.h.toLowerCase(), r.e);
   }
   db.close();
+  return expiry;
 }
+const keyHex = (e: Deno.KvEntry<unknown>) => toHex(encodeKey(e.key as KeyPart[]));
 
+const expiry = readExpiry();
 const kv = await Deno.openKv(source);
 const enc = new TextEncoder();
-// One line per entry: key bytes and versionstamp. Equal digests over two consecutive full passes mean
-// no commit touched a listed key between the first read of pass 1 and the end of pass 2, so pass 1
-// equals the store as it was when pass 1 ended.
-const stamp = (h: ReturnType<typeof createHash>, e: Deno.KvEntry<unknown>) =>
-  h.update(toHex(encodeKey(e.key as KeyPart[])) + " " + e.versionstamp + "\n");
+// One line per entry: key bytes, versionstamp and expiry. Pass 1 hashes the expiry it writes, from a map
+// read before pass 1; pass 2 hashes expiry from a map read again after pass 1 ended (time T).
+// Every commit to a key gives it a new, larger versionstamp, and a key's expiry changes only with a
+// commit. So if a key has the same versionstamp in both passes, no commit touched it between its pass-1
+// read and its pass-2 read, and that version was the live one at T. The map read at T therefore holds
+// that version's own expiry. Equal digests mean: the same keys with the same versionstamps (pass 1 equals
+// the store as it was at T), and each exported expireAt equals the second map's value, which is the
+// expiry of the exported version. A key written or re-written after the first map was read but before
+// pass 1 read it (same versionstamp in both passes, stale or missing expiry in the first map) changes the
+// digest. Without the recheck, an expireAt can belong to an older version of its key.
+const stamp = (h: ReturnType<typeof createHash>, e: Deno.KvEntry<unknown>, exp: number | undefined) =>
+  h.update(keyHex(e) + " " + e.versionstamp + " " + (exp ?? "-") + "\n");
 const first = createHash("sha256");
 let n = 0, withExpiry = 0;
 for await (const e of kv.list({ prefix: prefix as Deno.KvKey })) {
-  stamp(first, e);
   const json = entryToJSON(e) as unknown as Record<string, unknown>;
-  const exp = expiry.get(toHex(encodeKey(toKey(json.key as never) as KeyPart[])));
+  const exp = expiry.get(keyHex(e));
+  stamp(first, e, exp);
   if (exp !== undefined) {
     json.expireAt = exp;
     withExpiry++;
@@ -68,8 +80,9 @@ for await (const e of kv.list({ prefix: prefix as Deno.KvKey })) {
 let changed = false, n2 = 0;
 if (recheck) {
   const second = createHash("sha256");
+  const expiryAtT = readExpiry();
   for await (const e of kv.list({ prefix: prefix as Deno.KvKey })) {
-    stamp(second, e);
+    stamp(second, e, expiryAtT.get(keyHex(e)));
     n2++;
   }
   changed = first.digest("hex") !== second.digest("hex");

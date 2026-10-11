@@ -109,9 +109,9 @@ its exact `expireAt`, read from the file. An existing kv-utils export also works
 
 Stop writes to the source first. Deno KV has no snapshot read, so a list is read page by page, and an export taken while the app
 still writes can hold a state that never existed: in our test, an export taken during atomic transfers lost one or two units from a
-balance total that every commit kept constant. The export therefore lists the store a second time and compares every key and
-versionstamp. If anything changed, it exits with code 3 and deletes the output file. Put the app in maintenance mode (or make it
-read-only) and run it again. Keys that expire during the export also count as changes. `--no-recheck` skips the second pass.
+balance total that every commit kept constant. The export therefore lists the store a second time and compares every key,
+versionstamp and expiry. If anything changed, it exits with code 3 and deletes the output file. Put the app in maintenance mode (or
+make it read-only) and run it again. Keys that expire during the export also count as changes. `--no-recheck` skips the second pass.
 
 **5. Import** it into the Worker, through the migration route `handleMigration` exposes:
 
