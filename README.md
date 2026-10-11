@@ -11,7 +11,7 @@ Move a Deno KV app from Deno Deploy to Cloudflare Workers **with its data and it
 - **A verify harness.** It replays one request script against the Deno app and the Worker, then diffs the responses and the stored KV state.
 
 Free and MIT-licensed. Status: 0.1.0. Tested locally against `wrangler dev` (workerd), not yet against a deployed Cloudflare account. See
-[Limits](#limits).
+[Differences and limits](#differences-and-limits).
 
 ## Why not just map Deno KV to Workers KV?
 
