@@ -122,8 +122,11 @@ KV_MIGRATION_TOKEN=... deno run -A tools/import.ts --url https://my-app.example.
 ```
 
 The import preserves versionstamps, so new writes sort after the imported ones. It sends batches of up to 1 MB / 5,000 entries
-(`--batch-bytes`, `--dry-run`) and skips entries that have already expired. An entry with an exact `expireAt` keeps it. Otherwise the
-longest matching policy prefix applies, counted from import time. The route answers 404 unless the token is set and matches.
+(`--batch-bytes`, `--batch-entries`, `--dry-run`) and skips entries that have already expired. **On the Workers Free plan, add
+`--batch-entries 100`.** Free Workers get 10 ms of CPU per request; in our local measurement a 5,000-entry batch needed about 30 ms in the
+Worker alone, and about 0.06 ms per entry in total. A batch that fails can be sent again: the rerun writes the same entries. An entry with
+an exact `expireAt` keeps it. Otherwise the longest matching policy prefix applies, counted from import time. The route answers 404 unless
+the token is set and matches.
 
 **6. Verify** before you switch traffic. Run the same request script against the Deno app and the Worker:
 
@@ -172,8 +175,10 @@ The exit code is 1 when anything differs, so the check also works in CI. Run it 
   does not do that for you.
 - **Policy expiry counts from import time,** so a key can outlive its original deadline by up to one window. It never expires earlier.
 - **`@deno/kv-utils` writes key part `-0` as `0`.** This kit's export keeps `-0`, and its import accepts both.
-- **Production Workers behaviour** (deployed Durable Objects, real network latency) has not been measured by us. Run `tools/verify.ts`
-  against a preview deployment before you switch traffic.
+- **Production Workers behaviour** (deployed Durable Objects, real network latency, CPU limits) has not been measured by us. Run
+  `tools/verify.ts` against a staging Worker before you switch traffic. Cloudflare does not generate preview URLs for a Worker that
+  implements a Durable Object, so deploy a separate one (for example `wrangler deploy --env staging`). Unless its binding sets `script_name`
+  to the production Worker, its Durable Objects have their own storage, so the script's writes stay out of production.
 - **A port can still change behaviour outside KV.** One app we ported recorded `cf-connecting-ip` where Deno had stored `null`. The verify
   diff surfaced it.
 

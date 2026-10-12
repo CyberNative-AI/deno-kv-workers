@@ -2,7 +2,11 @@
 // that serves the /__kv/import route (src/migrate.ts). Versionstamps are preserved.
 //
 //   KV_MIGRATION_TOKEN=... deno run -A tools/import.ts --url http://127.0.0.1:8787 --in export.ndjson \
-//       [--policy ttl-policy.json] [--batch-bytes 1000000] [--dry-run]
+//       [--policy ttl-policy.json] [--batch-bytes 1000000] [--batch-entries 5000] [--dry-run]
+//
+// On the Workers Free plan each request gets 10 ms of CPU, and a full batch needs far more:
+// use --batch-entries 100 there. Batches before a failed one stay imported. Sending any batch again
+// writes the same keys, values and versionstamps, so a rerun is harmless before the Worker takes traffic.
 //
 // TTL policy (draft one with tools/scan.ts):
 //   { "rules": [ { "prefix": ["ratelimit"], "expireIn": 3600000 } ] }
@@ -57,8 +61,14 @@ if (import.meta.main) {
   const token = Deno.env.get("KV_MIGRATION_TOKEN");
   if (!url || !input) {
     console.error(
-      "usage: KV_MIGRATION_TOKEN=... tools/import.ts --url WORKER_URL --in FILE.ndjson [--policy FILE] [--batch-bytes N] [--dry-run]",
+      "usage: KV_MIGRATION_TOKEN=... tools/import.ts --url WORKER_URL --in FILE.ndjson [--policy FILE] [--batch-bytes N] [--batch-entries N] [--dry-run]",
     );
+    Deno.exit(2);
+  }
+  const maxBytes = Number(arg("--batch-bytes") ?? 1_000_000);
+  const maxEntries = Number(arg("--batch-entries") ?? 5000);
+  if (!(Number.isInteger(maxBytes) && maxBytes > 0) || !(Number.isInteger(maxEntries) && maxEntries > 0 && maxEntries <= 5000)) {
+    console.error("--batch-bytes must be a positive integer and --batch-entries an integer from 1 to 5000");
     Deno.exit(2);
   }
   const dry = Deno.args.includes("--dry-run");
@@ -76,12 +86,11 @@ if (import.meta.main) {
     console.error("warning: no TTL policy and no exact expiry: every imported key will be permanent");
   }
 
-  const maxBytes = Number(arg("--batch-bytes") ?? 1_000_000);
   const batches: string[][] = [[]];
   let size = 0;
   for (const e of entries) {
     const line = JSON.stringify(e);
-    if ((size + line.length > maxBytes || batches.at(-1)!.length >= 5000) && batches.at(-1)!.length) {
+    if ((size + line.length > maxBytes || batches.at(-1)!.length >= maxEntries) && batches.at(-1)!.length) {
       batches.push([]);
       size = 0;
     }
@@ -100,7 +109,14 @@ if (import.meta.main) {
       body: b.join("\n") + "\n",
     });
     if (!res.ok) {
-      console.error(`batch ${i + 1}/${batches.length} failed: HTTP ${res.status} ${await res.text()}`);
+      console.error(`batch ${i + 1}/${batches.length} failed: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
+      if (res.status >= 500) {
+        console.error(
+          `${i} batch(es) before it were imported. If the Worker is on the Workers Free plan (10 ms CPU per request),` +
+            " run the import again with --batch-entries 100. Importing the same entries again is harmless" +
+            " as long as the Worker has not taken traffic yet.",
+        );
+      }
       Deno.exit(1);
     }
     const r = await res.json() as { imported: number; skippedExpired: number };
