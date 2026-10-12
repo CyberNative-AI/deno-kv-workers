@@ -5,31 +5,32 @@
     { "pattern": "\"cursor\":\"[^\"]+\"", "replace": "\"cursor\":\"<cursor>\"" }
   ],
   "steps": [
+    { "name": "create link 1", "method": "POST", "path": "/links", "json": { "target": "https://example.com/1" }, "save": { "l1": "id" } },
+    { "name": "create link 2", "method": "POST", "path": "/links", "json": { "target": "https://example.com/2" }, "save": { "l2": "id" } },
+    { "name": "create link 3", "method": "POST", "path": "/links", "json": { "target": "https://example.com/3" }, "save": { "l3": "id" } },
+    { "name": "create link 4", "method": "POST", "path": "/links", "json": { "target": "https://example.com/4" }, "save": { "l4": "id" } },
+    { "name": "create link 5", "method": "POST", "path": "/links", "json": { "target": "https://example.com/5" }, "save": { "l5": "id" } },
+    { "name": "create link 6", "method": "POST", "path": "/links", "json": { "target": "https://example.com/6" }, "save": { "l6": "id" } },
+    { "name": "create link 7", "method": "POST", "path": "/links", "json": { "target": "https://example.com/7" }, "save": { "l7": "id" } },
+    { "name": "create link 8", "method": "POST", "path": "/links", "json": { "target": "https://example.com/8" }, "save": { "l8": "id" } },
     {
-      "name": "create link 1",
+      "name": "create link to delete",
       "method": "POST",
       "path": "/links",
-      "json": { "target": "https://example.com/one" },
-      "save": { "one": "id" }
+      "json": { "target": "https://example.com/deleted" },
+      "save": { "del": "id" }
     },
-    {
-      "name": "create link 2",
-      "method": "POST",
-      "path": "/links",
-      "json": { "target": "https://example.com/two" },
-      "save": { "two": "id" }
-    },
-    {
-      "name": "create link 3",
-      "method": "POST",
-      "path": "/links",
-      "json": { "target": "https://example.com/three" },
-      "save": { "three": "id" }
-    },
-    { "name": "20 concurrent redeems of link 1", "method": "GET", "path": "/r/{{one}}", "concurrent": 20 },
-    { "name": "redeem link 1 again", "method": "GET", "path": "/r/{{one}}" },
-    { "name": "delete link 2", "method": "DELETE", "path": "/links/{{two}}" },
-    { "name": "redeem deleted link 2", "method": "GET", "path": "/r/{{two}}" },
+    { "name": "20 concurrent redeems of link 1", "method": "GET", "path": "/r/{{l1}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 2", "method": "GET", "path": "/r/{{l2}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 3", "method": "GET", "path": "/r/{{l3}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 4", "method": "GET", "path": "/r/{{l4}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 5", "method": "GET", "path": "/r/{{l5}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 6", "method": "GET", "path": "/r/{{l6}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 7", "method": "GET", "path": "/r/{{l7}}", "concurrent": 20 },
+    { "name": "20 concurrent redeems of link 8", "method": "GET", "path": "/r/{{l8}}", "concurrent": 20 },
+    { "name": "redeem link 1 again", "method": "GET", "path": "/r/{{l1}}" },
+    { "name": "delete a link", "method": "DELETE", "path": "/links/{{del}}" },
+    { "name": "redeem the deleted link", "method": "GET", "path": "/r/{{del}}" },
     { "name": "list first page", "method": "GET", "path": "/links?limit=1" },
     { "name": "stats", "method": "GET", "path": "/stats" }
   ]

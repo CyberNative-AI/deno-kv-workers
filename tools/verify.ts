@@ -20,6 +20,8 @@
 //     { "sleep": 1000 }
 //   ]
 // }
+// A concurrent step is one sample of a race and may happen to serialize, so race each check-guarded
+// path several times on fresh data (the example races 8 links).
 
 type Step = {
   name?: string;
@@ -174,6 +176,10 @@ if (import.meta.main) {
   } else console.log("state: not compared (pass --state-a/--state-a-kv and --state-b)");
   if (arg("--json")) {
     await Deno.writeTextFile(arg("--json")!, JSON.stringify({ responses: { a: ra, b: rb, diffs: responseDiffs }, state }, null, 2));
+  }
+  const races = script.steps.filter((s) => (s.concurrent ?? 1) > 1).length;
+  if (races) {
+    console.log(`note: ${races} concurrent step${races > 1 ? "s are samples" : " is a sample"}; a clean result covers only the races hit`);
   }
   const clean = responseDiffs.length === 0 && (!state || state.onlyA.length + state.onlyB.length === 0);
   console.log(clean ? "RESULT: no differences" : "RESULT: differences found");

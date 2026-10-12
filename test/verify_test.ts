@@ -7,8 +7,20 @@ const deno = Deno.execPath();
 const wrangler = new URL("../node_modules/.bin/wrangler", import.meta.url).pathname;
 const TOKEN = "local-test-token";
 
+// A free port from the OS, so parallel runs never meet on a fixed port.
+function freePort(): number {
+  const l = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const { port } = l.addr as Deno.NetAddr;
+  l.close();
+  return port;
+}
+
 async function waitFor(url: string, child: Deno.ChildProcess) {
+  let exited = false;
+  child.status.then(() => (exited = true));
   for (let i = 0; i < 90; i++) {
+    // a server that lost its port exits; never accept another process answering there
+    if (exited) throw new Error(`${url}: server exited before it answered`);
     try {
       const r = await fetch(url);
       await r.body?.cancel();
@@ -79,21 +91,24 @@ Deno.test({
       }).spawn();
     try {
       // Each comparison needs a fresh original, because the script mutates it.
-      procs.push(runDeno(`${dir}/a1.sqlite`, 8810), startWorker("../examples/single-use-links/", 8811, `${dir}/port`));
-      await waitFor("http://127.0.0.1:8810/stats", procs[0]);
-      await waitFor("http://127.0.0.1:8811/stats", procs[1]);
+      const [a1, b1, a2, b2] = [freePort(), freePort(), freePort(), freePort()];
+      procs.push(runDeno(`${dir}/a1.sqlite`, a1), startWorker("../examples/single-use-links/", b1, `${dir}/port`));
+      await waitFor(`http://127.0.0.1:${a1}/stats`, procs[0]);
+      await waitFor(`http://127.0.0.1:${b1}/stats`, procs[1]);
       // verify reads the Deno store's SQLite file next to the running app (SQLite allows a second reader).
-      const good = await verify("http://127.0.0.1:8810", "http://127.0.0.1:8811", `${dir}/a1.sqlite`);
+      const good = await verify(`http://127.0.0.1:${a1}`, `http://127.0.0.1:${b1}`, `${dir}/a1.sqlite`);
       assertEquals(good.code, 0, good.out);
-      assert(good.out.includes("responses: 9/9 steps identical"), good.out);
+      assert(good.out.includes("responses: 22/22 steps identical"), good.out);
       assert(/state: (\d+) vs \1 entries; 0 differing/.test(good.out), good.out);
+      assert(good.out.includes("note: 8 concurrent steps are samples"), good.out);
 
-      procs.push(runDeno(`${dir}/a2.sqlite`, 8812), startWorker("../test/naive-worker/", 8813, `${dir}/naive`));
-      await waitFor("http://127.0.0.1:8812/stats", procs[2]);
-      await waitFor("http://127.0.0.1:8813/stats", procs[3]);
-      const bad = await verify("http://127.0.0.1:8812", "http://127.0.0.1:8813", `${dir}/a2.sqlite`);
+      // The script races several fresh links: one race alone can happen to serialize and show a single winner.
+      procs.push(runDeno(`${dir}/a2.sqlite`, a2), startWorker("../test/naive-worker/", b2, `${dir}/naive`));
+      await waitFor(`http://127.0.0.1:${a2}/stats`, procs[2]);
+      await waitFor(`http://127.0.0.1:${b2}/stats`, procs[3]);
+      const bad = await verify(`http://127.0.0.1:${a2}`, `http://127.0.0.1:${b2}`, `${dir}/a2.sqlite`);
       assertEquals(bad.code, 1, bad.out);
-      assert(bad.out.includes("DIFF 20 concurrent redeems of link 1"), bad.out);
+      assert(/DIFF 20 concurrent redeems of link \d+\n/.test(bad.out), bad.out);
       assert(bad.out.includes("DIFF stats"), bad.out);
       assert(bad.out.includes("RESULT: differences found"), bad.out);
     } finally {

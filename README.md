@@ -1,6 +1,6 @@
 # deno-kv-workers
 
-Move a Deno KV app from Deno Deploy to Cloudflare Workers **with its data and its KV semantics intact**, and prove nothing was lost.
+Move a Deno KV app from Deno Deploy to Cloudflare Workers **with its data and its KV semantics intact**, and check that nothing was lost.
 
 - **A `Deno.Kv`-compatible client on a SQLite Durable Object.** It gives you tuple-key order identical to Deno KV, versionstamps, atomic
   `check`/`set`/`delete`/`sum`/`min`/`max`, `expireIn`, and `list` with prefix/start/end/reverse/limit/cursor. Most app code runs unchanged
@@ -18,11 +18,11 @@ Free and MIT-licensed. Status: 0.1.0. Tested locally against `wrangler dev` (wor
 Workers KV has no atomic check, no versionstamps, no ordered tuple keys and eventually consistent reads. The usual port is a get-then-put,
 and these are the failures we measured:
 
-| What we ran                                                                            | Deno KV              | Naive port                                     |
-| -------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------- |
-| 20 concurrent redemptions of one single-use link, real public app ported to Workers KV | 1 redirect, 19 × 410 | **20 redirects**                               |
-| Redemption racing a delete, same app                                                   | link stays deleted   | **deleted link comes back as a stored record** |
-| Example app in this repo, `check()` dropped (`test/naive-worker`), `tools/verify.ts`   | 1 redemption         | **20 redemptions**, flagged by verify          |
+| What we ran                                                                            | Deno KV              | Naive port                                          |
+| -------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------- |
+| 20 concurrent redemptions of one single-use link, real public app ported to Workers KV | 1 redirect, 19 × 410 | **20 redirects**                                    |
+| Redemption racing a delete, same app                                                   | link stays deleted   | **deleted link comes back as a stored record**      |
+| Example app in this repo, `check()` dropped (`test/naive-worker`), `tools/verify.ts`   | 1 redemption         | **up to 20 redemptions**; verify flagged 40/40 runs |
 
 The data copy has its own trap. The Deno KV API never exposes an entry's expiry, so an export made with `@deno/kv-utils` (the documented
 route) **turns every expiring key into a permanent one**. In a real view-counter app ported this way, a visitor who hit its 1-hour rate
@@ -146,14 +146,18 @@ KV_MIGRATION_TOKEN=... deno run --unstable-kv -A tools/verify.ts script.json \
 ```
 
 ```
-responses: 9/9 steps identical after normalization
-state: 4 vs 4 entries; 0 differing entries
+responses: 22/22 steps identical after normalization
+state: 10 vs 10 entries; 0 differing entries
+note: 8 concurrent steps are samples; a clean result covers only the races hit
 RESULT: no differences
 ```
 
-A script is a list of HTTP steps. Each step can run concurrently (`"concurrent": 20`), save a response field for later steps, or sleep.
-Regex `normalize` rules mask generated ids and times. See [`examples/single-use-links/script.json`](examples/single-use-links/script.json).
-The exit code is 1 when anything differs, so the check also works in CI. Run it on copies of your data, not against production.
+A script is a list of HTTP steps. Each step can run concurrently (`"concurrent": 20`), save a response field for later steps, or sleep. A
+concurrent step is one sample of a race, and a race can happen to serialize: on the check-dropping control, 1 in 10 of our 20-way races
+showed a single winner, exactly as a correct port does. Race each check-guarded path several times, each on fresh data; the example races 8
+links. `verify` prints a note when a script has concurrent steps. Regex `normalize` rules mask generated ids and times. See
+[`examples/single-use-links/script.json`](examples/single-use-links/script.json). The exit code is 1 when anything differs, so the check
+also works in CI. Run it on copies of your data, not against production.
 
 ## What is tested
 
@@ -169,7 +173,8 @@ The exit code is 1 when anything differs, so the check also works in CI. Run it 
 - **Migration:** export, then import in batches. Keys, values, versionstamps and exact expiry survive, new writes sort after imported ones,
   and a wrong token gets 404.
 - **Scanner** on a fixture with constants, atomic writes, and strings and comments that must be ignored.
-- **Verify:** the example app has no differences on the port, and the check-dropping control is flagged.
+- **Verify:** the example script races 8 fresh links 20 ways each. The example app has no differences on the port, and the check-dropping
+  control is flagged.
 - **Unsupported calls** throw explicit errors.
 
 ## Differences and limits
