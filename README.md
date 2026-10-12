@@ -110,8 +110,18 @@ its exact `expireAt`, read from the file. An existing kv-utils export also works
 Stop writes to the source first. Deno KV has no snapshot read, so a list is read page by page, and an export taken while the app
 still writes can hold a state that never existed: in our test, an export taken during atomic transfers lost one or two units from a
 balance total that every commit kept constant. The export therefore lists the store a second time and compares every key,
-versionstamp and expiry. If anything changed, it exits with code 3 and deletes the output file. Put the app in maintenance mode (or
-make it read-only) and run it again. Keys that expire during the export also count as changes. `--no-recheck` skips the second pass.
+versionstamp and expiry. If anything changed, it exits with code 3 and writes nothing. Put the app in maintenance mode (or make it
+read-only) and run it again. Keys that expire during the export also count as changes. For a local file, stopping writes also protects
+the app: the export opens the file with `Deno.openKv`, and in our test that made occasional concurrent commits of the app fail with
+`database is locked`.
+
+The export is written to a temporary file next to `--out` and replaces `--out` only when it is complete and checked, so a
+failed, refused or interrupted (Ctrl-C) run leaves an earlier export there unchanged. Without `--out` the export goes to stdout, which
+needs `--no-recheck`: lines already printed cannot be taken back.
+
+`--no-recheck` skips the second pass, and with it both guarantees: the copy can hold a state that never existed, and a key written
+during the export can carry a stale or missing `expireAt`. `--prefix '["users"]'` exports one prefix; the check then covers only that
+prefix, so the copy is consistent only inside it, and separate exports of different prefixes are not consistent with each other.
 
 **5. Import** it into the Worker, through the migration route `handleMigration` exposes:
 

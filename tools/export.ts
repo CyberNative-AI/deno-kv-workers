@@ -5,8 +5,12 @@
 // Deno KV has no snapshot read: a list is fetched page by page, so an export taken while the app
 // still writes can hold a state that never existed (half of an atomic commit). After the export the
 // tool lists the store a second time and compares every key, versionstamp and expiry. If anything changed,
-// the export is not a consistent copy: it exits 3 and deletes the --out file. Stop writes to the
-// source (or put the app in maintenance mode) and run it again. --no-recheck skips the second pass.
+// the export is not a consistent copy: it exits 3. Stop writes to the source (or put the app in
+// maintenance mode) and run it again. --no-recheck skips the second pass.
+//
+// The export is written to a temporary file next to --out and renamed to --out only when it is complete
+// and passed the recheck, so a failed, refused or interrupted run leaves an earlier file at --out as it was.
+// Without --out the export goes to stdout, which needs --no-recheck: lines already printed cannot be taken back.
 //
 // For a local or self-hosted SQLite store (a file path), each entry that has an expiry also gets
 // "expireAt" (ms since epoch) read from the store, because the Deno KV API never exposes expiry
@@ -25,13 +29,16 @@ function arg(name: string): string | undefined {
 
 const source = Deno.args.find((a, i) => !a.startsWith("--") && !Deno.args[i - 1]?.startsWith("--"));
 if (!source) {
-  console.error("usage: tools/export.ts <kv path or KV Connect URL> [--out FILE] [--prefix '[\"users\"]']");
+  console.error("usage: tools/export.ts <kv path or KV Connect URL> [--out FILE] [--prefix '[\"users\"]'] [--no-recheck]");
   Deno.exit(2);
 }
 const prefix = arg("--prefix") ? (JSON.parse(arg("--prefix")!) as KeyPart[]) : [];
 const outPath = arg("--out");
-const out = outPath ? await Deno.open(outPath, { write: true, create: true, truncate: true }) : Deno.stdout;
 const recheck = !Deno.args.includes("--no-recheck");
+if (!outPath && recheck) {
+  console.error("export: use --out FILE (stdout needs --no-recheck: a refused export cannot take back lines already printed)");
+  Deno.exit(2);
+}
 
 const isUrl = /^https?:\/\//.test(source);
 // Expiry by key (hex of the encoded key), read from the store's SQLite file. Empty for a hosted store.
@@ -51,6 +58,24 @@ const keyHex = (e: Deno.KvEntry<unknown>) => toHex(encodeKey(e.key as KeyPart[])
 
 const expiry = readExpiry();
 const kv = await Deno.openKv(source);
+// The source is open; only now create the temporary file (same directory, so the rename is atomic).
+const tmpPath = outPath && `${outPath}.${crypto.randomUUID().slice(0, 8)}.partial`;
+const out = tmpPath ? await Deno.open(tmpPath, { write: true, createNew: true }) : Deno.stdout;
+const removeTmp = () => {
+  if (!tmpPath) return;
+  try {
+    out.close();
+  } catch { /* already closed */ }
+  try {
+    Deno.removeSync(tmpPath);
+  } catch { /* already gone */ }
+};
+const interrupted = (code: number) => () => {
+  removeTmp();
+  Deno.exit(code);
+};
+Deno.addSignalListener("SIGINT", interrupted(130));
+if (Deno.build.os !== "windows") Deno.addSignalListener("SIGTERM", interrupted(143));
 const enc = new TextEncoder();
 // One line per entry: key bytes, versionstamp and expiry. Pass 1 hashes the expiry it writes, from a map
 // read before pass 1; pass 2 hashes expiry from a map read again after pass 1 ended (time T).
@@ -65,39 +90,45 @@ const enc = new TextEncoder();
 const stamp = (h: ReturnType<typeof createHash>, e: Deno.KvEntry<unknown>, exp: number | undefined) =>
   h.update(keyHex(e) + " " + e.versionstamp + " " + (exp ?? "-") + "\n");
 const first = createHash("sha256");
-let n = 0, withExpiry = 0;
-for await (const e of kv.list({ prefix: prefix as Deno.KvKey })) {
-  const json = entryToJSON(e) as unknown as Record<string, unknown>;
-  const exp = expiry.get(keyHex(e));
-  stamp(first, e, exp);
-  if (exp !== undefined) {
-    json.expireAt = exp;
-    withExpiry++;
-  }
-  await out.write(enc.encode(JSON.stringify(json) + "\n"));
-  n++;
-}
-let changed = false, n2 = 0;
-if (recheck) {
-  const second = createHash("sha256");
-  const expiryAtT = readExpiry();
+let n = 0, withExpiry = 0, changed = false, n2 = 0;
+try {
   for await (const e of kv.list({ prefix: prefix as Deno.KvKey })) {
-    stamp(second, e, expiryAtT.get(keyHex(e)));
-    n2++;
+    const json = entryToJSON(e) as unknown as Record<string, unknown>;
+    const exp = expiry.get(keyHex(e));
+    stamp(first, e, exp);
+    if (exp !== undefined) {
+      json.expireAt = exp;
+      withExpiry++;
+    }
+    await out.write(enc.encode(JSON.stringify(json) + "\n"));
+    n++;
   }
-  changed = first.digest("hex") !== second.digest("hex");
+  if (recheck) {
+    const second = createHash("sha256");
+    const expiryAtT = readExpiry();
+    for await (const e of kv.list({ prefix: prefix as Deno.KvKey })) {
+      stamp(second, e, expiryAtT.get(keyHex(e)));
+      n2++;
+    }
+    changed = first.digest("hex") !== second.digest("hex");
+  }
+} catch (e) {
+  removeTmp();
+  throw e;
 }
 kv.close();
-if (outPath) out.close();
 if (changed) {
-  if (outPath) await Deno.remove(outPath);
+  removeTmp();
   console.error(
-    `export NOT consistent: the store changed while it was read (${n} entries, then ${n2} on the recheck)` +
-      (outPath ? `; deleted ${outPath}` : "; discard this output") +
+    `export NOT consistent: the store changed while it was read (${n} entries, then ${n2} on the recheck); ${outPath} not written` +
       ".\nStop writes to the source (or put the app in maintenance mode) and run the export again." +
       " Keys that expire during the export also count as changes.",
   );
   Deno.exit(3);
+}
+if (tmpPath) {
+  out.close();
+  await Deno.rename(tmpPath, outPath!);
 }
 console.error(
   `exported ${n} entries; ${withExpiry} with expireAt` +
