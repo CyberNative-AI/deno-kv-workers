@@ -10,7 +10,7 @@ Move a Deno KV app from Deno Deploy to Cloudflare Workers **with its data and it
 - **A static `expireIn` scanner** that drafts that TTL policy from your own code.
 - **A verify harness.** It replays one request script against the Deno app and the Worker, then diffs the responses and the stored KV state.
 
-Free and MIT-licensed. Status: 0.1.1. Tested locally against `wrangler dev` (workerd), not yet against a deployed Cloudflare account. See
+Free and MIT-licensed. Status: 0.1.2. Tested locally against `wrangler dev` (workerd), not yet against a deployed Cloudflare account. See
 [Differences and limits](#differences-and-limits).
 
 ## Why not just map Deno KV to Workers KV?
@@ -37,14 +37,14 @@ Requirements: a Worker with Durable Objects on SQLite storage (available on the 
 run the tools.
 
 ```sh
-npm install github:CyberNative-AI/deno-kv-workers#v0.1.1
+npm install github:CyberNative-AI/deno-kv-workers#v0.1.2
 ```
 
 The tools in steps 3–6 run with Deno from a pinned URL, because Deno does not run TypeScript from `node_modules`. Set this once, with the
 same release as the install (a clone of this repo works too: use its `tools` directory):
 
 ```sh
-T=https://raw.githubusercontent.com/CyberNative-AI/deno-kv-workers/v0.1.1/tools
+T=https://raw.githubusercontent.com/CyberNative-AI/deno-kv-workers/v0.1.2/tools
 ```
 
 **1. Bind the Durable Object** in `wrangler.jsonc`:
@@ -96,7 +96,7 @@ expireIn writes: 6
   main.ts:13  key ["daily", "summary"]  prefix ["daily","summary"]  expireIn 30 * 24 * HOUR = 2592000000 ms
   main.ts:15  key key  prefix ["dynamic"]  expireIn ttl = ? ms
 
-draft policy (5 prefixes):
+draft policy (5 rules):
   ["ratelimit"] expireIn 3600000 ms  (main.ts:7)
   ...
 NEEDS REVIEW (1): prefix or duration not resolvable statically
@@ -104,13 +104,30 @@ NEEDS REVIEW (1): prefix or duration not resolvable statically
 ```
 
 The scan is static and best-effort. It resolves literal key prefixes, constant arithmetic and same-file `const` names. If one prefix has
-several windows, the scan keeps the longest, so no key expires earlier than it would on Deno. Review the draft before you use it.
+several windows, the scan keeps the longest, so no key expires earlier than it would on Deno. A key whose parts are all literals, such as
+`["daily", "summary"]`, gets a rule with `"exact": true` that covers only that key; every other rule covers the keys below its prefix, as
+`list({ prefix })` does. Review the draft before you use it.
 
-**4. Export** the Deno KV data:
+**4. Export** the Deno KV data. From a SQLite file (local Deno or self-hosted `denokv`):
 
 ```sh
 deno run --unstable-kv -A $T/export.ts path/to/kv.sqlite --out export.ndjson
 ```
+
+From a database hosted on Deno Deploy, pass its KV Connect URL and an access token, as Deno documents in
+[Connect from outside Deno Deploy](https://docs.deno.com/deploy/reference/deno_kv/#connect-from-outside-deno-deploy). The Databases table on
+the database instance page in the Deno Deploy console shows each database's ID. Every timeline of an app has its own database; the
+production one is named `<app-id>-production`. A personal or an organization access token works.
+
+```sh
+DENO_KV_ACCESS_TOKEN=ddo_... deno run --unstable-kv -A $T/export.ts \
+  https://api.deno.com/v2/databases/<database-id>/connect --out export.ndjson
+```
+
+A hosted export has no expiry: KV Connect does not return it, so every expiring key gets its window from the TTL policy in step 3. Review
+that policy before step 5. KV data left on Deno Deploy Classic cannot be read this way: Deno's
+[migration guide](https://docs.deno.com/deploy/migration_guide/) says to contact support@deno.com. Ask them for a `@deno/kv-utils` NDJSON
+export; step 5 imports that file.
 
 The output is `@deno/kv-utils` NDJSON. If the source is a SQLite file (local Deno or self-hosted `denokv`), each expiring entry also gets
 its exact `expireAt`, read from the file. An existing kv-utils export also works as input.
@@ -181,7 +198,8 @@ also works in CI. Run it on copies of your data, not against production.
 - **TTL:** an expired key is hidden at once and deleted by the Durable Object alarm. After Deno's own sweep, the results match Deno's.
 - **Migration:** export, then import in batches. Keys, values, versionstamps and exact expiry survive, new writes sort after imported ones,
   and a wrong token gets 404.
-- **Scanner** on a fixture with constants, atomic writes, and strings and comments that must be ignored.
+- **Scanner** on a fixture with constants, atomic writes, and strings and comments that must be ignored. Its draft policy, applied by the
+  import, gives each fixture key the window its app writes.
 - **Verify:** the example script races 8 fresh links 20 ways each. The example app has no differences on the port, and the check-dropping
   control is flagged.
 - **Unsupported calls** throw explicit errors.
@@ -191,9 +209,9 @@ also works in CI. Run it on copies of your data, not against production.
 - **Not supported:** `kv.watch()`, queues (`enqueue`, `listenQueue`), and `Deno.openKv(path)`. Each throws an error that names the
   Cloudflare alternative. Consistency options are accepted and ignored: every read is strongly consistent.
 - **Expiry is stricter than Deno's.** Deno can serve an expired key until its background sweep. This port hides it at once.
-- **Hosted Deno Deploy export is untested.** `tools/export.ts` accepts a KV Connect URL with `DENO_KV_ACCESS_TOKEN`. Against a
-  self-hosted `denokv` 0.14.0 server it exported the same entries, in the same order, as a direct read of the store's file. We have not
-  run it against a hosted database. Exact expiry is never readable over KV Connect. Use the scanner's TTL policy instead.
+- **Hosted Deno Deploy export is untested.** We have not run step 4 against a hosted database. Against a self-hosted `denokv` 0.14.0 server,
+  over the same KV Connect protocol, it exported the same entries, in the same order, as a direct read of the store's file, and the import
+  gave every expiring key its policy window. Exact expiry is never readable over KV Connect. Use the scanner's TTL policy instead.
 - **One Durable Object holds one KV database.** All commits are serialized, which is what makes `check()` exact. Throughput is that of one
   Durable Object, and storage is capped by the Durable Object SQLite limit. An app that needs more must shard by key prefix itself. This kit
   does not do that for you.
@@ -205,6 +223,10 @@ also works in CI. Run it on copies of your data, not against production.
   to the production Worker, its Durable Objects have their own storage, so the script's writes stay out of production.
 - **A port can still change behaviour outside KV.** One app we ported recorded `cf-connecting-ip` where Deno had stored `null`. The verify
   diff surfaced it.
+
+## Feedback
+
+Open an [issue](https://github.com/CyberNative-AI/deno-kv-workers/issues) if verify shows a difference or your app hits an unsupported API.
 
 ## Licence
 

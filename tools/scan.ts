@@ -11,6 +11,8 @@ export type Finding = {
   line: number;
   keyText: string;
   prefix: string[] | null;
+  /** every key part is a literal, so `prefix` is the whole key */
+  exact: boolean;
   expireInText: string;
   expireInMs: number | null;
 };
@@ -160,13 +162,14 @@ export function evalMs(expr: string, consts: Map<string, string>, depth = 0): nu
   }
 }
 
-function literalPrefix(keyText: string, consts: Map<string, string>, depth = 0): string[] | null {
+function literalPrefix(keyText: string, consts: Map<string, string>, depth = 0): { prefix: string[]; exact: boolean } | null {
   let t = keyText.trim().replace(/\s+as\s+const$/, "");
   if (/^[A-Za-z_$][\w$]*$/.test(t) && consts.has(t) && depth < 3) return literalPrefix(consts.get(t)!, consts, depth + 1);
   if (!t.startsWith("[") || !t.endsWith("]")) return null;
   t = t.slice(1, -1);
   const prefix: string[] = [];
-  for (const part of splitTop(mask(t), t, 0, t.length)) {
+  const parts = splitTop(mask(t), t, 0, t.length);
+  for (const part of parts) {
     const s = part.match(/^(["'])((?:\\.|(?!\1).)*)\1$/) ?? part.match(/^(`)([^`$]*)`$/);
     if (s) prefix.push(s[2]);
     else if (/^[A-Z_][A-Z0-9_]*$/.test(part) && consts.has(part)) {
@@ -175,7 +178,7 @@ function literalPrefix(keyText: string, consts: Map<string, string>, depth = 0):
       prefix.push(v[2]);
     } else break;
   }
-  return prefix;
+  return { prefix, exact: prefix.length > 0 && prefix.length === parts.length };
 }
 
 export function scanSource(file: string, src: string): Finding[] {
@@ -203,6 +206,7 @@ export function scanSource(file: string, src: string): Finding[] {
         line,
         keyText: "(not a .set(...) call)",
         prefix: null,
+        exact: false,
         expireInText: src.slice(hit.index!, hit.index! + 40).split("\n")[0],
         expireInMs: null,
       });
@@ -213,11 +217,13 @@ export function scanSource(file: string, src: string): Finding[] {
     const opts = args[2] ?? "";
     const ex = opts.match(/expireIn\s*:\s*([^,}]+)/) ?? (/\bexpireIn\b/.test(opts) ? ["", "expireIn"] : null);
     const expireInText = ex ? ex[1].trim() : opts;
+    const lit = literalPrefix(args[0] ?? "", consts);
     found.push({
       file,
       line,
       keyText: args[0] ?? "",
-      prefix: literalPrefix(args[0] ?? "", consts),
+      prefix: lit?.prefix ?? null,
+      exact: lit?.exact ?? false,
       expireInText,
       expireInMs: evalMs(expireInText, consts),
     });
@@ -226,17 +232,19 @@ export function scanSource(file: string, src: string): Finding[] {
 }
 
 export function draftPolicy(findings: Finding[]) {
-  const byPrefix = new Map<string, { prefix: string[]; expireIn: number; sites: string[] }>();
+  const byPrefix = new Map<string, { prefix: string[]; exact: boolean; expireIn: number; sites: string[] }>();
   const review: Finding[] = [];
   for (const f of findings) {
     if (!f.prefix || f.prefix.length === 0 || f.expireInMs === null) {
       review.push(f);
       continue;
     }
-    const k = JSON.stringify(f.prefix);
+    // a fully literal key gets a rule for that key alone: import matches a prefix rule only to keys
+    // below the prefix, so ["daily","summary"] would otherwise fall back to a shorter ["daily"] window
+    const k = (f.exact ? "=" : "") + JSON.stringify(f.prefix);
     const cur = byPrefix.get(k);
     // several windows on one prefix: take the longest, so no key expires earlier than on Deno
-    if (!cur) byPrefix.set(k, { prefix: f.prefix, expireIn: f.expireInMs, sites: [`${f.file}:${f.line}`] });
+    if (!cur) byPrefix.set(k, { prefix: f.prefix, exact: f.exact, expireIn: f.expireInMs, sites: [`${f.file}:${f.line}`] });
     else {
       cur.expireIn = Math.max(cur.expireIn, f.expireInMs);
       cur.sites.push(`${f.file}:${f.line}`);
@@ -265,15 +273,24 @@ if (import.meta.main) {
       } ms`,
     );
   }
-  console.log(`\ndraft policy (${rules.length} prefixes):`);
-  for (const r of rules) console.log(`  ${JSON.stringify(r.prefix)} expireIn ${r.expireIn} ms  (${r.sites.join(", ")})`);
+  console.log(`\ndraft policy (${rules.length} rules):`);
+  for (const r of rules) {
+    console.log(`  ${JSON.stringify(r.prefix)}${r.exact ? " exact key" : ""} expireIn ${r.expireIn} ms  (${r.sites.join(", ")})`);
+  }
   if (review.length) {
     console.log(`\nNEEDS REVIEW (${review.length}): prefix or duration not resolvable statically`);
     for (const f of review) console.log(`  ${f.file}:${f.line}  key ${f.keyText}  expireIn ${f.expireInText}`);
   }
   const out = Deno.args[Deno.args.indexOf("--policy-out") + 1];
   if (Deno.args.includes("--policy-out") && out) {
-    Deno.writeTextFileSync(out, JSON.stringify({ rules: rules.map(({ prefix, expireIn }) => ({ prefix, expireIn })) }, null, 2) + "\n");
+    Deno.writeTextFileSync(
+      out,
+      JSON.stringify(
+        { rules: rules.map(({ prefix, exact, expireIn }) => exact ? { prefix, exact, expireIn } : { prefix, expireIn }) },
+        null,
+        2,
+      ) + "\n",
+    );
     console.log(`\nwrote ${out}`);
   }
 }

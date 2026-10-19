@@ -9,16 +9,18 @@
 // writes the same keys, values and versionstamps, so a rerun is harmless before the Worker takes traffic.
 //
 // TTL policy (draft one with tools/scan.ts):
-//   { "rules": [ { "prefix": ["ratelimit"], "expireIn": 3600000 } ] }
-// Prefix parts are plain strings or kv-utils JSON parts ({"type":"bigint","value":"1"}).
-// The longest matching prefix wins. Entries that already carry "expireAt" (read from a local or
+//   { "rules": [ { "prefix": ["ratelimit"], "expireIn": 3600000 },
+//                { "prefix": ["daily", "summary"], "exact": true, "expireIn": 2592000000 } ] }
+// Prefix parts are plain strings or kv-utils JSON parts ({"type":"bigint","value":"1"}). A rule
+// matches the keys below its prefix, as list({ prefix }) does; with "exact": true it matches that one
+// key instead. The longest matching rule wins. Entries that already carry "expireAt" (read from a local or
 // self-hosted store) keep it. Policy expiry counts from import time, so a key can outlive its
 // original deadline by up to one window; it never expires earlier than on Deno.
 import { encodeKey, type KeyPart, toHex } from "../src/keys.ts";
 import { toKey } from "../src/vendor/kv_json.ts";
 
 type Entry = { key: unknown[]; value: unknown; versionstamp: string; expireAt?: number | null };
-type Rule = { prefix: unknown[]; expireIn: number };
+type Rule = { prefix: unknown[]; exact?: boolean; expireIn: number };
 
 function arg(name: string): string | undefined {
   const i = Deno.args.indexOf(name);
@@ -28,13 +30,17 @@ function arg(name: string): string | undefined {
 export function compilePolicy(rules: Rule[]) {
   const compiled = rules.map((r) => {
     if (!(r.expireIn > 0)) throw new Error(`policy rule ${JSON.stringify(r.prefix)}: expireIn must be > 0 ms`);
+    if (r.exact !== undefined && typeof r.exact !== "boolean") {
+      throw new Error(`policy rule ${JSON.stringify(r.prefix)}: exact must be true or false`);
+    }
     const parts = r.prefix.map((p) => typeof p === "string" ? { type: "string", value: p } : p);
-    return { hex: toHex(encodeKey(toKey(parts as never) as KeyPart[])), expireIn: r.expireIn, label: JSON.stringify(r.prefix), hits: 0 };
+    const label = JSON.stringify(r.prefix) + (r.exact ? " exact" : "");
+    return { hex: toHex(encodeKey(toKey(parts as never) as KeyPart[])), exact: r.exact === true, expireIn: r.expireIn, label, hits: 0 };
   }).sort((a, b) => b.hex.length - a.hex.length);
   return {
     rules: compiled,
     match(keyHex: string) {
-      return compiled.find((r) => keyHex.startsWith(r.hex) && keyHex.length > r.hex.length);
+      return compiled.find((r) => r.exact ? keyHex === r.hex : keyHex.startsWith(r.hex) && keyHex.length > r.hex.length);
     },
   };
 }
