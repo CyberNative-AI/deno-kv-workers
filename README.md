@@ -124,7 +124,7 @@ DENO_KV_ACCESS_TOKEN=ddo_... deno run --unstable-kv -A $T/export.ts \
   https://api.deno.com/v2/databases/<database-id>/connect --out export.ndjson
 ```
 
-A hosted export has no expiry: KV Connect does not return it, so every expiring key gets its window from the TTL policy in step 3. Review
+A hosted export carries no expiry times: KV Connect does not return them, so every expiring key gets its window from the TTL policy in step 3. Review
 that policy before step 5. KV data left on Deno Deploy Classic cannot be read this way: Deno's
 [migration guide](https://docs.deno.com/deploy/migration_guide/) says to contact support@deno.com. Ask them for a `@deno/kv-utils` NDJSON
 export; step 5 imports that file.
