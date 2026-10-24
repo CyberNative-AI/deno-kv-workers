@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="538" viewBox="0 0 640 538" role="img" aria-labelledby="migration-title migration-desc">
+  <title id="migration-title">Deno KV to Workers: export, import, verify</title>
+  <desc id="migration-desc">Three connected objects show a checked migration. Export: stop source writes and recheck the copy. Import: ordered keys and atomic checks in a SQLite Durable Object. Verify: replay the same script and compare replies and KV state. Preserve exact expiry when available; otherwise use a reviewed TTL policy counted from import time. Tested locally with workerd; deployed Workers are untested.</desc>
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#25272d"/><stop offset=".58" stop-color="#151518"/><stop offset="1" stop-color="#1c2027"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2=".85" y2="1">
+      <stop stop-color="#f1f3f2"/><stop offset=".22" stop-color="#c5cbd0"/><stop offset=".48" stop-color="#747e88"/><stop offset=".65" stop-color="#b7c2cc"/><stop offset="1" stop-color="#3e4855"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#b6bec7"/><stop offset=".2" stop-color="#596370"/><stop offset="1" stop-color="#242b34"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0" y1="0" x2="1" y2=".7">
+      <stop stop-color="#353e49"/><stop offset=".48" stop-color="#171c24"/><stop offset="1" stop-color="#576472"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#759ac2"/><stop offset=".6" stop-color="#c7e1ff"/><stop offset="1" stop-color="#9abfe8"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="538" rx="18" fill="url(#ground)"/>
+  <path d="M24 96H616M24 398H616" stroke="#414954"/>
+  <g font-family="Arial,Helvetica,sans-serif" fill="#e8e9e7">
+    <text x="28" y="43" font-size="29" font-weight="700" letter-spacing="-.7">Migration, with checks.</text>
+    <text x="28" y="75" font-size="22" fill="#bdc7d3">Deno KV → Workers</text>
+  </g>
+  <!-- Exact approved C/N front silhouette, scaled as one geometry. -->
+  <g transform="translate(570 23) scale(.035)" fill="#e8e9e7" aria-hidden="true">
+    <path d="M421 169H813Q822 169 828 176L908 261Q918 270 908 279L865 313Q861 317 852 317H491Q472 317 457 332L371 417Q356 432 356 450V756Q356 779 372 796L427 852Q444 870 465 870H711Q724 870 733 880L824 973Q833 982 824 991L784 1030Q778 1036 766 1036H424Q396 1036 377 1017L220 861Q199 840 199 813V421Q199 391 219 371L391 185Q404 169 421 169Z"/>
+    <path d="M401 402H510Q532 402 548 418L949 835Q959 846 959 831V554Q959 537 971 524L1062 425Q1073 413 1073 429V980L1017 1055Q1005 1071 994 1059L392 419Q379 402 401 402Z"/>
+  </g>
+  <!-- Ordered records: the copy travels as a checked bundle. -->
+  <g aria-hidden="true">
+    <ellipse cx="121" cy="268" rx="75" ry="11" fill="#0b0d12" opacity=".65"/>
+    <path d="M49 198L161 174L187 203L75 229Z" fill="url(#metal)"/>
+    <path d="M49 198L75 229V244L49 214Z" fill="url(#face)"/>
+    <path d="M75 229L187 203V218L75 244Z" fill="url(#edge)"/>
+    <path d="M49 175L161 151L187 180L75 206Z" fill="url(#metal)"/>
+    <path d="M49 175L75 206V221L49 191Z" fill="url(#face)"/>
+    <path d="M75 206L187 180V195L75 221Z" fill="url(#edge)"/>
+    <path d="M49 152L161 128L187 157L75 183Z" fill="url(#metal)"/>
+    <path d="M49 152L75 183V198L49 168Z" fill="url(#face)"/>
+    <path d="M75 183L187 157V172L75 198Z" fill="url(#edge)"/>
+    <path d="M64 151L151 132M77 165L164 146" stroke="#eff4f9" stroke-opacity=".7" stroke-width="2"/>
+    <path d="M84 187L176 166V171L84 192Z" fill="url(#signal)"/>
+    <path d="M84 210L147 195V200L84 215Z" fill="#9abfe8" opacity=".8"/>
+    <path d="M84 233L120 225V230L84 238Z" fill="#9abfe8" opacity=".55"/>
+    <!-- Arrows express sequence, not a data-transfer result. -->
+    <path d="M201 204H229M222 197L229 204L222 211" fill="none" stroke="#adccee" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- A single machined gate: serialized atomic commits. -->
+    <ellipse cx="320" cy="268" rx="74" ry="11" fill="#0b0d12" opacity=".65"/>
+    <path d="M253 228L357 206L389 236L285 259Z" fill="url(#metal)"/>
+    <path d="M285 259L389 236V248L285 271Z" fill="url(#edge)"/>
+    <path d="M253 228L285 259V271L253 241Z" fill="url(#face)"/>
+    <path d="M274 140L346 124L372 150V230L346 236V159L299 169V246L274 251Z" fill="url(#metal)"/>
+    <path d="M346 124L372 150L372 230L346 236V159L328 141Z" fill="url(#edge)"/>
+    <path d="M284 147L343 134" stroke="#f3f7fa" stroke-width="2" stroke-opacity=".8"/>
+    <path d="M305 199L343 190L361 208L323 218Z" fill="url(#signal)"/>
+    <path d="M323 218L361 208V216L323 226Z" fill="#759ac2"/>
+    <path d="M305 199L323 218V226L305 208Z" fill="#536f91"/>
+    <path d="M403 204H431M424 197L431 204L424 211" fill="none" stroke="#adccee" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Two record leaves expose the comparison, not a universal pass. -->
+    <ellipse cx="524" cy="268" rx="73" ry="11" fill="#0b0d12" opacity=".65"/>
+    <path d="M467 139L545 124L568 148V235L490 251L467 228Z" fill="url(#edge)"/>
+    <path d="M467 139L545 124V211L467 228Z" fill="url(#metal)"/>
+    <path d="M494 161L572 146L595 170V257L517 273L494 250Z" fill="url(#edge)"/>
+    <path d="M494 161L572 146V233L494 250Z" fill="url(#metal)"/>
+    <path d="M480 158L531 148M480 178L531 168M480 198L513 191" stroke="#40536a" stroke-width="5"/>
+    <path d="M507 180L558 170M507 200L558 190M507 220L540 213" stroke="#29435f" stroke-width="5"/>
+    <path d="M480 158L507 180M480 178L507 200M480 198L507 220" stroke="#b6d7ff" stroke-width="2" stroke-dasharray="3 4"/>
+  </g>
+  <g font-family="Arial,Helvetica,sans-serif" text-anchor="middle">
+    <g fill="#e8e9e7" font-size="24" font-weight="700">
+      <text x="119" y="308">01 Export</text><text x="320" y="308">02 Import</text><text x="523" y="308">03 Verify</text>
+    </g>
+    <g fill="#bdc7d3" font-size="22">
+      <text x="119" y="342">Stop writes.</text><text x="119" y="370">Recheck copy.</text>
+      <text x="320" y="342">Ordered keys.</text><text x="320" y="370">Atomic checks.</text>
+      <text x="523" y="342">Same script.</text><text x="523" y="370">Diff replies + state.</text>
+    </g>
+  </g>
+  <g font-family="Arial,Helvetica,sans-serif" font-size="22">
+    <text x="28" y="434" fill="#b6d7ff">Expiry: exact when known; otherwise a reviewed</text>
+    <text x="28" y="463" fill="#b6d7ff">TTL policy counted from import time.</text>
+    <text x="28" y="507" fill="#bdc7d3">Local workerd tested. Deployed Workers untested.</text>
+  </g>
+</svg>

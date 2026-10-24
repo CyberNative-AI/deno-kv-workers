@@ -49,6 +49,19 @@ same release as the install (a clone of this repo works too: use its `tools` dir
 T=https://raw.githubusercontent.com/CyberNative-AI/deno-kv-workers/v0.1.2/tools
 ```
 
+<details>
+<summary>Migration map: export → import → verify</summary>
+
+![Three-part migration map: checked export, ordered import with atomic checks, and verification of replies and stored KV state.](assets/migration-map.svg)
+
+Stop source writes, export with its recheck, then import in batches into a SQLite Durable Object.
+Exact expiry is retained when available; otherwise review the TTL policy, which counts from import time.
+Replay the same request script against both apps and compare replies and KV state before switching traffic.
+Run verification on copies. Tested locally with `wrangler dev` (`workerd`); deployed Workers and hosted
+Deno Deploy export remain untested.
+
+</details>
+
 **1. Bind the Durable Object** in `wrangler.jsonc`:
 
 ```jsonc
