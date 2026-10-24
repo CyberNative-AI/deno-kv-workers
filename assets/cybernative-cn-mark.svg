@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-labelledby="title desc">
+  <title id="title">CyberNative C/N favicon</title>
+  <desc id="desc">Ivory CyberNative C/N front silhouette on graphite. The open C, diagonal N, and clipped right stem follow the generated avatar.</desc>
+  <path fill="#151518" d="M0 0H1254V1254H0Z"/>
+  <g fill="#e8e9e7">
+    <path id="c" d="M421 169H813Q822 169 828 176L908 261Q918 270 908 279L865 313Q861 317 852 317H491Q472 317 457 332L371 417Q356 432 356 450V756Q356 779 372 796L427 852Q444 870 465 870H711Q724 870 733 880L824 973Q833 982 824 991L784 1030Q778 1036 766 1036H424Q396 1036 377 1017L220 861Q199 840 199 813V421Q199 391 219 371L391 185Q404 169 421 169Z"/>
+    <path id="n" d="M401 402H510Q532 402 548 418L949 835Q959 846 959 831V554Q959 537 971 524L1062 425Q1073 413 1073 429V980L1017 1055Q1005 1071 994 1059L392 419Q379 402 401 402Z"/>
+  </g>
+</svg>
